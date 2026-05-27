@@ -2,17 +2,21 @@
 ai_identifier.py — Smartbox Lost & Found
 Mengidentifikasi nama dan deskripsi barang dari gambar menggunakan Gemini Vision API.
 """
-import json
+import json       # <-- PERBAIKAN 1: Dipindahkan ke paling atas agar global dan tidak memicu UnboundLocalError
 import os
 import base64
 import logging
 from pathlib import Path
 
 import google.generativeai as genai
+from dotenv import load_dotenv  # <-- PERBAIKAN 2: Tambahkan ini untuk membaca file .env otomatis
+
+# Muat variabel lingkungan dari file .env (jika ada di lokal)
+load_dotenv()
 
 log = logging.getLogger("Smartbox.AI")
 
-# Ambil API key dari environment variable
+# Ambil API key dari environment variable (.env lokal atau environment hosting cloud)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 # Konfigurasi client Gemini
@@ -47,8 +51,11 @@ def identify_item(image_path: Path) -> tuple[str, str]:
         Tuple (nama_barang, deskripsi_barang)
     """
     if not GEMINI_API_KEY:
-        log.error("GEMINI_API_KEY tidak diset! Jalankan: export GEMINI_API_KEY=your_key")
+        log.error("GEMINI_API_KEY tidak diset! Jalankan: export GEMINI_API_KEY=your_key atau buat file .env")
         return "tidak teridentifikasi", "API key tidak tersedia."
+
+    # Inisialisasi variabel response di luar try agar aman dibaca di blok except jika terjadi error sebelum response terbentuk
+    response = None 
 
     try:
         # Upload gambar menggunakan Gemini Files API
@@ -67,8 +74,6 @@ def identify_item(image_path: Path) -> tuple[str, str]:
             SYSTEM_PROMPT
         ])
 
-        # Parse response JSON
-        import json
         raw_text = response.text.strip()
 
         # Bersihkan jika ada markdown code fence
@@ -85,7 +90,8 @@ def identify_item(image_path: Path) -> tuple[str, str]:
         return nama, deskripsi
 
     except json.JSONDecodeError as e:
-        log.error(f"Gagal parse JSON dari Gemini: {e}. Response: {response.text[:200]}")
+        res_text = response.text[:200] if response else "No Response"
+        log.error(f"Gagal parse JSON dari Gemini: {e}. Response: {res_text}")
         return "tidak teridentifikasi", "Gagal memproses respons AI."
 
     except Exception as e:
