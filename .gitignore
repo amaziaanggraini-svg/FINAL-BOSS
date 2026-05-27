@@ -1,3 +1,12 @@
 .env
-captures/
-__pycache__/
+.venv
+venv
+env
+Include/
+backend/Lib/
+backend/Scripts/
+backend/__pycache__/
+edge/__pycache__/
+edge/captures/
+*.db
+.DS_Store
