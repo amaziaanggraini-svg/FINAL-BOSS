@@ -2,28 +2,28 @@
 ai_identifier.py — Smartbox Lost & Found
 Mengidentifikasi nama dan deskripsi barang dari gambar menggunakan Gemini Vision API.
 """
-import json       # <-- PERBAIKAN 1: Dipindahkan ke paling atas agar global dan tidak memicu UnboundLocalError
+import json       # <-- DETAIL 1: Dipindahkan ke paling atas agar bersifat global
 import os
 import base64
 import logging
 from pathlib import Path
 
 import google.generativeai as genai
-from dotenv import load_dotenv  # <-- PERBAIKAN 2: Tambahkan ini untuk membaca file .env otomatis
+from dotenv import load_dotenv  # <-- DETAIL 2: Ditambahkan untuk membaca file .env
 
-# Muat variabel lingkungan dari file .env (jika ada di lokal)
+# Jalankan fungsi load_dotenv() untuk memuat isi file .env ke dalam sistem
 load_dotenv()
 
 log = logging.getLogger("Smartbox.AI")
 
-# Ambil API key dari environment variable (.env lokal atau environment hosting cloud)
+# Ambil API key dari environment variable (.env di laptop Anda atau config vars di hosting cloud)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-# Konfigurasi client Gemini
+# Konfigurasi client Gemini menggunakan key yang telah diambil
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-3.1-flash-lite")  # Model ringan, cepat, hemat kuota
+model = genai.GenerativeModel("gemini-3.1-flash-lite")  # Menggunakan model hemat kuota dan cepat
 
-# Prompt yang dioptimalkan untuk identifikasi barang hilang
+# Prompt panduan untuk AI Gemini
 SYSTEM_PROMPT = """
 Kamu adalah sistem identifikasi barang temuan untuk Lost & Found box.
 Analisis gambar ini dan identifikasi barang yang ada di dalamnya.
@@ -54,18 +54,16 @@ def identify_item(image_path: Path) -> tuple[str, str]:
         log.error("GEMINI_API_KEY tidak diset! Jalankan: export GEMINI_API_KEY=your_key atau buat file .env")
         return "tidak teridentifikasi", "API key tidak tersedia."
 
-    # Inisialisasi variabel response di luar try agar aman dibaca di blok except jika terjadi error sebelum response terbentuk
+    # DETAIL 3: Set variabel response menjadi None di awal agar aman dibaca jika terjadi eror koneksi
     response = None 
 
     try:
-        # Upload gambar menggunakan Gemini Files API
-        # (Alternatif: encode base64 langsung ke prompt untuk gambar kecil)
         log.info(f"Mengunggah gambar ke Gemini: {image_path}")
 
         with open(image_path, "rb") as f:
             image_data = f.read()
 
-        # Kirim ke Gemini dengan inline data (cocok untuk gambar < 20MB)
+        # Mengirimkan data gambar (Base64) beserta instruksi Prompt ke Gemini
         response = model.generate_content([
             {
                 "mime_type": "image/jpeg",
@@ -76,12 +74,13 @@ def identify_item(image_path: Path) -> tuple[str, str]:
 
         raw_text = response.text.strip()
 
-        # Bersihkan jika ada markdown code fence
+        # Membersihkan kode jika Gemini tidak sengaja membungkus respons dengan markdown (```json ... ```)
         if raw_text.startswith("```"):
             raw_text = raw_text.split("```")[1]
             if raw_text.startswith("json"):
                 raw_text = raw_text[4:]
 
+        # Mengubah teks mentah dari Gemini menjadi objek JSON Python
         result = json.loads(raw_text)
         nama      = result.get("nama", "tidak teridentifikasi")
         deskripsi = result.get("deskripsi", "")
@@ -90,7 +89,8 @@ def identify_item(image_path: Path) -> tuple[str, str]:
         return nama, deskripsi
 
     except json.JSONDecodeError as e:
-        res_text = response.text[:200] if response else "No Response"
+        # Jika respon gagal diubah menjadi JSON, ambil teks respon aman (jika ada)
+        res_text = response.text[:200] if response else "Tidak ada respon dari server"
         log.error(f"Gagal parse JSON dari Gemini: {e}. Response: {res_text}")
         return "tidak teridentifikasi", "Gagal memproses respons AI."
 
