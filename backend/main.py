@@ -9,7 +9,7 @@ import os
 import shutil
 import uuid
 from datetime import datetime
-import pytz
+from zoneinfo import ZoneInfo  # <-- Menggunakan pustaka bawaan Python, aman tanpa instalan tambahan
 from pathlib import Path
 from typing import Optional, List
 
@@ -24,11 +24,18 @@ from pydantic import BaseModel
 
 
 # ─── Konfigurasi ─────────────────────────────────────────────────────────────
-DATABASE_URL  = os.environ.get("DATABASE_URL", "sqlite:///./smartbox.db")
+# PERBAIKAN DATABASE: Jika dideploy ke Vercel, arahkan SQLite ke folder /tmp bawaan Linux agar tidak read-only
+if os.environ.get("VERCEL"):
+    DATABASE_URL = "sqlite:////tmp/smartbox.db"
+else:
+    DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./smartbox.db")
+
 UPLOAD_DIR    = Path("uploads")
 API_SECRET    = os.environ.get("SMARTBOX_API_SECRET", "rahasia123") 
 UPLOAD_DIR.mkdir(exist_ok=True)
-JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
+
+# PERBAIKAN ZONA WAKTU: Menggunakan ZoneInfo bawaan Python, menggantikan library pytz sepenuhnya
+JAKARTA_TZ = ZoneInfo("Asia/Jakarta")
 
 # ─── Database Setup ───────────────────────────────────────────────────────────
 engine       = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
@@ -65,7 +72,7 @@ class LostItem(Base):
     contact_phone   = Column(String(50), nullable=False)
     contact_email   = Column(String(200), default="")
     image_path      = Column(String(500), nullable=True)
-    created_at      = Column(DateTime, default=get_local_now) # SINKRONISASI: Diubah dari utcnow ke get_local_now
+    created_at      = Column(DateTime, default=get_local_now)
 
 
 # Terapkan skema dasar tabel
@@ -166,7 +173,8 @@ def verify_api_secret(x_api_secret: str = Header(None)):
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+    # Menggunakan penanda waktu standar bawaan untuk cek status server cloud
+    return {"status": "ok", "timestamp": datetime.now(ZoneInfo("UTC")).isoformat()}
 
 
 # ── Barang Temuan (from Smartbox edge device) ─────────────────────────────────
@@ -193,7 +201,7 @@ async def create_found_item(
         location    = location,
         image_path  = str(unique_name),
         status      = "unclaimed",
-        created_at  = get_local_now() # Memastikan waktu pengisian dari edge terekam dalam WIB
+        created_at  = get_local_now()
     )
     db.add(db_item)
     db.commit()
@@ -227,7 +235,7 @@ async def create_found_item_manual(
         location    = location,
         image_path  = str(unique_name) if unique_name else None,
         status      = "unclaimed",
-        created_at  = get_local_now() # Memastikan waktu manual terekam dalam WIB
+        created_at  = get_local_now()
     )
     db.add(db_item)
     db.commit()
@@ -307,7 +315,7 @@ async def create_lost_item(
         contact_phone = contact_phone,
         contact_email = contact_email,
         image_path    = str(unique_name) if unique_name else None,
-        created_at    = get_local_now() # SINKRONISASI: Pengisian barang hilang direkam menggunakan WIB
+        created_at    = get_local_now()
     )
     db.add(db_item)
     db.commit()
@@ -387,7 +395,6 @@ def bulk_delete_lost_items(payload: BulkActionRequest, db: Session = Depends(get
 # ─── Helpers (Serialization Format Dinamis & ISO Standard) ────────────────────
 
 def _serialize_found_item(item: FoundItem) -> dict:
-    # Mengonversi format tanggal menjadi ISO format String yang seragam agar frontend tidak crash saat sorting
     iso_date = item.created_at.isoformat() if hasattr(item.created_at, 'isoformat') else str(item.created_at)
     return {
         "id"         : item.id,
